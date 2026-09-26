@@ -1,0 +1,17 @@
+.git
+.gitignore
+node_modules
+.next
+.serena
+
+# 秘密情報を含むため、絶対にCloud Buildのソースアップロードに含めない
+.env
+.env.*
+!.env.example
+
+npm-debug.log*
+*.log
+.DS_Store
+coverage
+
+**/*.test.ts

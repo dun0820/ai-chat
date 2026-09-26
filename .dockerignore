@@ -1,0 +1,24 @@
+node_modules
+.next
+.git
+.serena
+
+# 秘密情報を含むため、絶対にビルドコンテキストに含めない
+# (Next.js の standalone 出力は .env をそのままイメージにコピーするため、
+#  ここで除外しておかないと本物のAPIキー/接続文字列がイメージに焼き込まれる)
+.env
+.env.*
+!.env.example
+
+npm-debug.log*
+*.log
+.DS_Store
+coverage
+
+**/*.test.ts
+vitest.config.mts
+
+Dockerfile
+.dockerignore
+README.md
+TODO.md
