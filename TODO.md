@@ -168,6 +168,23 @@
 - [x] Cookie周りの挙動をHTTPS環境（Cloud Run）で再確認（Secure属性等）
   - 本番(HTTPS)環境で `Secure; HttpOnly; SameSite=lax` が正しく付与されることを確認（ローカルdevではSecureが付かないのは`NODE_ENV=production`分岐による意図通りの挙動）
 
+## Phase 8.5: GitHub Actionsによる自動デプロイ（追加対応）
+
+- [x] GitHubリポジトリを作成し、コードをpush
+  - `https://github.com/dun0820/ai-chat`（public）。初回コミット・push完了
+- [x] GCP側の認証をWorkload Identity Federation (WIF) で構築
+  - サービスアカウントキー(JSON)を発行しない、Google推奨のセキュアな方式を採用
+  - 専用サービスアカウント `github-deployer@ai-chat-509723.iam.gserviceaccount.com` を作成し、`roles/run.admin`, `roles/cloudbuild.builds.editor`, `roles/artifactregistry.writer`, `roles/storage.admin`, および実行時サービスアカウントへの`roles/iam.serviceAccountUser`を付与
+  - Workload Identity Pool(`github-pool`)/ Provider(`github-provider`)を作成し、`attribute.repository == 'dun0820/ai-chat'` のリポジトリからのみ、かつ`repository_owner == 'dun0820'`の条件付きでサービスアカウントの権限借用(`roles/iam.workloadIdentityUser`)を許可
+  - 最近のgcloudでは`--attribute-condition`の明示指定が必須になっている点に注意(未指定だとエラー)
+- [x] `.github/workflows/deploy.yml` を作成
+  - `test`ジョブ(lint + vitest) → `deploy`ジョブ(Cloud Run) の2段構成。`main`ブランチへのpushで自動実行、`workflow_dispatch`で手動実行も可能
+  - デプロイ内容はローカルで実行していたコマンドと同一(`--source .`によるCloud Build経由ビルド、Secret Manager参照、`--min-instances=0`)
+- [x] GitHub Secretsを設定(`GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`)
+- [x] 実際にpush→自動デプロイの一連の流れを確認
+  - 初回実行はpushの直後にsecrets設定が間に合わず認証エラーになったが、secrets設定完了後に再実行(`gh run rerun`)して成功。以降のpushでは同じ問題は起きない
+  - デプロイ後 `/api/health` が200を返すことを確認済み
+
 ---
 
 ## スコープ外（実装しない）
