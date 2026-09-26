@@ -22,5 +22,5 @@ export const personaAgent = new Agent({
   id: "persona-agent",
   name: "凪 (Nagi)",
   instructions: PERSONA_INSTRUCTIONS,
-  model: "anthropic/claude-opus-5",
+  model: "anthropic/claude-haiku-4-5",
 });
