@@ -36,10 +36,11 @@
   - MongoDBコネクタは `prisma migrate` 非対応のため、`prisma db push` でスキーマを反映する方針とする
 - [x] TTLインデックス導入の要否を検討（検証用途のため自動削除を入れるか判断）
   - Prisma 6系の `schema.prisma` では `expireAfterSeconds` を表現できない（v7/v8のcontract構文のみ対応）ため、今回は導入を見送り。必要になれば別途mongoshやスクリプトでTTLインデックスを手動作成する運用とする
-- [ ] `prisma generate` / 接続確認（簡単なスクリプトでCRUD疎通確認）
+- [x] `prisma generate` / 接続確認（簡単なスクリプトでCRUD疎通確認）
   - [x] `prisma generate` 実行・成功確認済み
   - [x] CRUD疎通確認スクリプト作成済み（`prisma/db-check.ts`、`npm run db:check` で実行）
-  - [ ] 実際のAtlas接続文字列でのCRUD疎通確認 — `DATABASE_URL` 設定後にユーザー側で実行が必要
+  - [x] 実際のAtlas接続文字列でのCRUD疎通確認 — `npm run db:push` → `npm run db:check` で実クラスタへの接続・CRUDを確認済み
+    - GCP無料トライアルの請求先アカウントではAtlas無料枠がMarketplace経由で購入できなかったため、Atlas公式サイトから直接サインアップして回避
 
 ## Phase 2: セッション管理
 
@@ -82,7 +83,7 @@
   - ストリーミング完了後にuser→assistantの順で`prisma.message.create`を実行し、createdAtの前後関係を保証
 - [x] エラーハンドリング（Claude API失敗時、DB書き込み失敗時）は最低限に留める（過度な抽象化を避ける）
   - Agent呼び出し開始失敗は502 JSON、ストリーミング中/DB保存時のエラーはconsole.errorのみ（レスポンスヘッダー送信済みのため）とし、最低限に留めた
-  - dev サーバー + curl で `/api/chat` の疎通確認（バリデーション400、DB未接続時の500まで想定通りの挙動を確認）。実際のAI応答確認はAtlas接続文字列・Claude APIキー設定後にユーザー側で実行が必要
+  - dev サーバー + curl で `/api/chat` の疎通確認（バリデーション400、DB未接続時の500、実際のAtlas+Claude API接続での会話・履歴保存まですべて確認済み）
   - 副次的発見: Next.js 16.3.6では`middleware.ts`が非推奨になり`proxy.ts`に名称変更されていたため、Phase 2で作成した`middleware.ts`を`proxy.ts`（`export function proxy`）に移行した
 
 ## Phase 5: フロントエンド実装（Next.js）
@@ -146,8 +147,12 @@
   - `ANTHROPIC_API_KEY` と `DATABASE_URL` は機密情報のため **Secret Manager経由で参照**する方針（Cloud Runの「シークレットを環境変数として参照」機能を使用）
   - `SESSION_COOKIE_NAME` は非機密のため通常の環境変数（`--set-env-vars`）で設定
   - 実際のCloud Run設定コマンドはPhase 8で実施
-- [ ] MongoDB Atlas等、Cloud Runから接続可能な本番/検証用DBを用意
-  - ユーザー側での対応が必要（Atlasアカウント・クラスタ作成）。Phase 1から引き続き未着手
+- [x] MongoDB Atlas等、Cloud Runから接続可能な本番/検証用DBを用意
+  - Atlas無料枠(M0, cluster0)を作成。Network Accessに`0.0.0.0/0`を追加し、Cloud Run(固定egress IPを持たない)からの接続を許可
+  - デプロイ後に発覚した問題2件と対応:
+    1. `node:24-slim`にOpenSSLが無くPrismaのクエリエンジンが正しいバイナリターゲットを検出できず、Atlasとのtls handshakeが`fatal alert: InternalError`で失敗 → Dockerfileの全ステージに`apt-get install openssl`を追加
+    2. Atlas Network AccessにdevcontainerのIPしか登録されておらずCloud Runからの接続が拒否されていた → `0.0.0.0/0`を追加して解決
+  - 本番Cloud Run環境で実際にチャット送信・履歴保存・履歴取得まで一連の動作を確認済み
 
 ## Phase 8: Cloud Runへのデプロイ
 
