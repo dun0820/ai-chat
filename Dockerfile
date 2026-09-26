@@ -3,6 +3,10 @@
 # --- deps: 依存関係のインストール (postinstallでprisma generateも実行される) ---
 FROM node:24-slim AS deps
 WORKDIR /app
+# node:24-slim にはOpenSSLが含まれておらず、Prisma Clientが正しいクエリエンジンの
+# バイナリターゲット(例: debian-openssl-3.0.x)を検出できずMongoDB Atlasとの
+# TLSハンドシェイクが失敗する原因になるため、明示的にインストールする
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
 RUN npm ci
@@ -10,6 +14,7 @@ RUN npm ci
 # --- builder: Next.js standalone ビルド ---
 FROM node:24-slim AS builder
 WORKDIR /app
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
@@ -32,7 +37,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV HOSTNAME=0.0.0.0
 ENV PORT=8080
 
-RUN groupadd --system --gid 1001 nodejs \
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/* \
+  && groupadd --system --gid 1001 nodejs \
   && useradd --system --uid 1001 --gid nodejs nextjs
 
 COPY --from=builder /app/public ./public
