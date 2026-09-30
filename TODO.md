@@ -190,6 +190,19 @@
   - 初回実行はpushの直後にsecrets設定が間に合わず認証エラーになったが、secrets設定完了後に再実行(`gh run rerun`)して成功。以降のpushでは同じ問題は起きない
   - デプロイ後 `/api/health` が200を返すことを確認済み
 
+## Phase 9: 画像添付機能（マルチモーダル対応）
+
+- [x] `prisma/schema.prisma` に `Message.imageData`（Base64）/`Message.imageMediaType` を追加
+  - 検証・個人利用目的のため、外部ストレージ（Cloud Storage等）は導入せずMongoDBにBase64で直接保存する方針を採用（CLAUDE.mdの「外部サービス連携は行わない」方針を維持）
+- [x] `server/routes/chat.ts` を拡張
+  - リクエストボディを `{ message: string, image?: { data: string; mediaType: string } }` に拡張。画像のみ（`message`が空文字）での送信も許可
+  - 対応形式は `image/jpeg`, `image/png`, `image/gif`, `image/webp`、サイズ上限はBase64換算で元データ5MB相当。不正な画像は400を返す
+  - 会話履歴・新規メッセージともにテキスト+画像のcontentパーツ配列としてMastra Agentへ渡すよう変更（過去に画像付きで送ったメッセージも履歴として画像込みでAgentに渡る）
+- [x] `mastra/agents/persona.ts` に画像を受け取った際の振る舞いを追記（決めつけずに描写する、わからないことは素直に伝える 等）
+- [x] `app/(chat)/page.tsx` に画像添付UIを追加
+  - 添付ボタン（ファイル選択）、ドラッグ&ドロップ、プレビュー表示・削除、送信中の無効化に対応
+  - チャット履歴内の画像付きメッセージも吹き出し内にインライン表示
+
 ---
 
 ## スコープ外（実装しない）

@@ -4,6 +4,8 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
 type FakeMessage = {
   role: "user" | "assistant";
   content: string;
+  imageData?: string | null;
+  imageMediaType?: string | null;
   createdAt: Date;
 };
 type FakeSession = { id: string; messages: FakeMessage[] };
@@ -44,6 +46,8 @@ vi.mock("@/lib/prisma", () => ({
             sessionId: string;
             role: "user" | "assistant";
             content: string;
+            imageData?: string | null;
+            imageMediaType?: string | null;
           };
         }) => {
           const token = sessionIdToToken.get(data.sessionId);
@@ -54,6 +58,8 @@ vi.mock("@/lib/prisma", () => ({
           const message: FakeMessage = {
             role: data.role,
             content: data.content,
+            imageData: data.imageData ?? null,
+            imageMediaType: data.imageMediaType ?? null,
             createdAt: new Date(),
           };
           session.messages.push(message);
@@ -65,7 +71,12 @@ vi.mock("@/lib/prisma", () => ({
 }));
 
 const agentStreamMock = vi.fn(
-  async (messages: Array<{ role: "user" | "assistant"; content: string }>) => {
+  async (
+    messages: Array<{
+      role: "user" | "assistant";
+      content: unknown;
+    }>,
+  ) => {
     const chunks = ["mock", "-", "reply", `(msgs=${messages.length})`];
     return {
       textStream: (async function* () {
@@ -239,5 +250,135 @@ describe("session isolation", () => {
     const bodyA = await messagesResA.json();
     expect(bodyA.messages).toHaveLength(2);
     expect(bodyA.messages[0].content).toBe("Aさんのメッセージ");
+  });
+});
+
+describe("POST /chat image attachments", () => {
+  const tinyPngBase64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+  it("returns 400 when image has an unsupported media type", async () => {
+    const res = await chat.request("/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...cookieHeader("77777777-7777-4777-8777-777777777777"),
+      },
+      body: JSON.stringify({
+        message: "この画像なに?",
+        image: { data: tinyPngBase64, mediaType: "image/svg+xml" },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(agentStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when both message and image are empty", async () => {
+    const res = await chat.request("/chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...cookieHeader("88888888-8888-4888-8888-888888888888"),
+      },
+      body: JSON.stringify({ message: "   " }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(agentStreamMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts an image-only message (no text)", async () => {
+    const token = "99999999-9999-4999-8999-999999999999";
+
+    const res = await chat.request("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...cookieHeader(token) },
+      body: JSON.stringify({
+        message: "",
+        image: { data: tinyPngBase64, mediaType: "image/png" },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    await readAll(res);
+
+    expect(agentStreamMock).toHaveBeenCalledWith([
+      {
+        role: "user",
+        content: [
+          { type: "image", image: `data:image/png;base64,${tinyPngBase64}` },
+        ],
+      },
+    ]);
+
+    const saved = sessionsByToken.get(token)?.messages ?? [];
+    expect(saved[0]).toMatchObject({
+      role: "user",
+      content: "",
+      imageData: tinyPngBase64,
+      imageMediaType: "image/png",
+    });
+  });
+
+  it("passes text+image as content parts and replays the image in later history", async () => {
+    const token = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
+    await readAll(
+      await chat.request("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...cookieHeader(token) },
+        body: JSON.stringify({
+          message: "これ何かわかる?",
+          image: { data: tinyPngBase64, mediaType: "image/png" },
+        }),
+      }),
+    );
+
+    await readAll(
+      await chat.request("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...cookieHeader(token) },
+        body: JSON.stringify({ message: "ありがとう" }),
+      }),
+    );
+
+    // 2回目の呼び出しでは、1回目の画像付きメッセージが履歴としてそのまま渡る
+    expect(agentStreamMock).toHaveBeenLastCalledWith([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "これ何かわかる?" },
+          { type: "image", image: `data:image/png;base64,${tinyPngBase64}` },
+        ],
+      },
+      { role: "assistant", content: "mock-reply(msgs=1)" },
+      { role: "user", content: "ありがとう" },
+    ]);
+  });
+
+  it("exposes the saved image via GET /messages", async () => {
+    const token = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+    await readAll(
+      await chat.request("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...cookieHeader(token) },
+        body: JSON.stringify({
+          message: "見て",
+          image: { data: tinyPngBase64, mediaType: "image/png" },
+        }),
+      }),
+    );
+
+    const res = await chat.request("/messages", { headers: cookieHeader(token) });
+    const body = await res.json();
+
+    expect(body.messages[0]).toMatchObject({
+      role: "user",
+      content: "見て",
+      image: { data: tinyPngBase64, mediaType: "image/png" },
+    });
+    expect(body.messages[1].image).toBeNull();
   });
 });
